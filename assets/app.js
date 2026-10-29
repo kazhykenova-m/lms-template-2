@@ -1,31 +1,159 @@
-let state,page='overview',timer,attempt;
-const app=document.getElementById('app');
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function toast(s){const t=document.getElementById('toast');t.textContent=s;t.style.display='block';clearTimeout(t.tm);t.tm=setTimeout(()=>t.style.display='none',5000)}
-async function api(action,data){const r=await fetch('api.php?action='+action,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json','X-CSRF-Token':state?.csrf||''}:{},body:data?JSON.stringify(data):undefined});const j=await r.json();if(!j.ok)throw Error(j.error||'Ошибка запроса');return j}
-async function refresh(){try{state=await api('state');document.documentElement.style.setProperty('--accent',state.brand.color);document.title=state.brand.name+' · Обучение';render()}catch(e){app.innerHTML='<div class="auth"><h2>Не удалось загрузить платформу</h2><p>'+esc(e.message)+'</p><button onclick="refresh()">Повторить</button></div>'}}
-function brand(){return '<div class="brand">'+(state.brand.logo?'<img src="'+esc(state.brand.logo)+'" alt="'+esc(state.brand.name)+'">':'<span class="mark">f</span> '+esc(state.brand.name))+'</div>'}
-function go(p){clearInterval(timer);page=p;render()}
-const statuses={assigned:'Назначено',active:'В процессе',completed:'Завершено',expired:'Время истекло'};
-function badge(a){return '<span class="badge '+(a.status==='completed'?'good':a.status==='active'?'accent':'')+'">'+statuses[a.status]+'</span>'}
-function render(){if(!state.user){auth();return}const admin=!!state.user.admin;const nav=admin?[['overview','◫','Обзор'],['courses','▤','Обучения и тесты'],['users','♙','Команда'],['results','▥','Результаты'],['brand','◈','Бренд платформы']]:[['overview','◫','Моё обучение'],['results','▥','Мои результаты']];app.innerHTML='<aside>'+brand()+'<nav>'+nav.map(([id,icon,title])=>'<button class="'+(page===id?'active':'')+'" onclick="go(\''+id+'\')">'+icon+'　'+title+'</button>').join('')+'</nav><div class="account"><strong>'+esc(state.user.name)+'</strong><small>'+esc(admin?'Администратор':state.user.role)+'</small><button class="link" onclick="logout()">Выйти ↗</button></div></aside><main><header><span>Рабочее пространство / '+esc(nav.find(n=>n[0]===page)?.[2]||'Обучение')+'</span><span>'+esc(state.user.name)+' <button class="link" onclick="logout()">↗</button></span></header><div id="content"></div></main>';const c=document.getElementById('content');if(page==='overview')overview(c);else if(page==='courses')courses(c);else if(page==='users')users(c);else if(page==='results')results(c);else if(page==='brand')branding(c)}
-function heading(k,title,desc,button=''){return '<div class="hero"><div><div class="eyebrow">'+k+'</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+button+'</div>'}
-function auth(){app.innerHTML='<div class="auth">'+brand()+'<h1>'+(state.setup?'Начнём с вашей команды':'С возвращением')+'</h1><p>'+(state.setup?'Создайте администратора своей платформы.':'Войдите, чтобы продолжить обучение.')+'</p><form id="auth">'+(state.setup?'<label>Ваше имя</label><input name="name" required maxlength="120">':'')+'<label>Email</label><input type="email" name="email" required autocomplete="username"><label>Пароль'+(state.setup?' · минимум 10 символов':'')+'</label><input type="password" name="password" required '+(state.setup?'minlength="10"':'')+' autocomplete="'+(state.setup?'new-password':'current-password')+'"><button>'+(state.setup?'Создать платформу →':'Войти →')+'</button><p class="error" id="auth-error" role="alert"></p></form></div>';document.getElementById('auth').onsubmit=e=>submitForm(e,async b=>{b.role='Администратор';await api(state.setup?'setup':'login',b);await refresh()},'auth-error')}
-async function submitForm(e,fn,errorId){e.preventDefault();const b=e.target.querySelector('button[type=submit],button:not([type])');if(b)b.disabled=true;try{await fn(Object.fromEntries(new FormData(e.target)))}catch(err){if(errorId)document.getElementById(errorId).textContent=err.message;else toast(err.message)}finally{if(b)b.disabled=false}}
-async function logout(){try{await api('logout',{});await refresh()}catch(e){toast(e.message)}}
-function overview(c){const a=state.assignments;const admin=state.user.admin;const done=a.filter(x=>['completed','expired'].includes(x.status)).length;c.innerHTML=heading('LEARNING WORKSPACE',admin?'Развитие начинается здесь':'Ваш следующий шаг',admin?'Всё для обучения команды — в одном пространстве.':'Новые знания, понятный маршрут и ваши результаты.',admin?'<button onclick="go(\'courses\')">+ Создать обучение</button>':'')+'<div class="stats"><div class="stat"><span>'+(admin?'Сотрудников':'Назначено обучений')+'</span><strong>'+(admin?state.users.length:a.length)+'</strong></div><div class="stat"><span>Завершено попыток</span><strong>'+done+'</strong></div><div class="stat"><span>'+(admin?'Обучений в библиотеке':'Результатов опубликовано')+'</span><strong>'+(admin?state.courses.length:a.filter(x=>x.published).length)+'</strong></div></div><h2>'+(admin?'Последние назначения':'Мои обучения')+'</h2>'+(a.length?'<div class="grid">'+a.slice(0,admin?6:999).map(x=>'<article class="card">'+badge(x)+'<h3>'+esc(x.title)+'</h3><p>'+esc(admin?x.name:x.description||'Изучите материал и пройдите тест')+'</p>'+(admin?'<span class="hint">'+esc(x.role)+'</span>':['assigned','active'].includes(x.status)?'<button onclick="openAttempt('+x.id+')">'+(x.status==='active'?'Продолжить':'Открыть обучение')+' →</button>':'<span class="hint">'+(x.published?'Результат: '+x.score+'%':'Результат ожидает публикации')+'</span>')+'</article>').join('')+'</div>':'<div class="empty">'+(admin?'Добавьте первое обучение и назначьте его команде.':'Обучения появятся после назначения администратором.')+'</div>')}
-function courses(c){c.innerHTML=heading('БИБЛИОТЕКА','Обучения и тесты','Создавайте материалы и проверяйте знания команды.','<button onclick="editor()">+ Новое обучение</button>')+'<div class="panel row"><div><strong>Уже есть готовый тест?</strong><div class="hint">Загрузите JSON по образцу из папки examples.</div></div><input aria-label="Импорт теста JSON" type="file" accept=".json" onchange="importCourse(this)"></div>'+(state.courses.length?'<div class="grid">'+state.courses.map(x=>'<article class="card"><span class="badge">'+x.minutes+' мин · порог '+x.pass_score+'%</span><h3>'+esc(x.title)+'</h3><p>'+esc(x.description)+'</p><button class="secondary" onclick="assignForm('+x.id+')">Назначить команде →</button></article>').join('')+'</div>':'<div class="empty">Библиотека пока пуста. Создайте первое обучение.</div>')}
-function editor(){const c=document.getElementById('content');c.innerHTML=heading('НОВОЕ ОБУЧЕНИЕ','От материала к практике','Сначала знания, затем тест с одним правильным ответом.')+'<form id="editor" class="panel narrow"><label>Название</label><input name="title" required maxlength="180"><label>Краткое описание</label><textarea name="description" maxlength="2000"></textarea><label>Учебный материал</label><textarea name="material" placeholder="Текст, инструкции и ссылки для самостоятельного изучения" maxlength="100000"></textarea><div class="row"><div><label>Время теста, минут</label><input name="minutes" type="number" min="1" max="1440" value="30" required></div><div><label>Проходной балл, %</label><input name="pass_score" type="number" min="0" max="100" value="80" required></div></div><div id="questions"></div><div class="row toolbar"><button type="button" class="secondary" onclick="addQuestion()">+ Вопрос</button><button type="submit">Сохранить обучение</button></div></form>';addQuestion();document.getElementById('editor').onsubmit=e=>submitForm(e,async b=>{b.minutes=Number(b.minutes);b.pass_score=Number(b.pass_score);b.questions=[...document.querySelectorAll('.question')].map(q=>({text:q.querySelector('[data-text]').value,options:[...q.querySelectorAll('[data-option]')].map(o=>o.value),correct:Number(q.querySelector('select').value)}));await api('course',b);page='courses';await refresh();toast('Обучение создано')})}
-function addQuestion(){const q=document.createElement('div');q.className='question';q.innerHTML='<label>Вопрос</label><textarea data-text required></textarea>'+[1,2,3,4].map(n=>'<label>Вариант '+n+'</label><input data-option required>').join('')+'<label>Правильный вариант</label><select>'+[0,1,2,3].map(i=>'<option value="'+i+'">Вариант '+(i+1)+'</option>').join('')+'</select><button type="button" class="link" onclick="this.parentElement.remove()">Удалить вопрос</button>';document.getElementById('questions').append(q)}
-async function importCourse(input){try{const file=input.files[0];if(!file)return;if(file.size>3000000)throw Error('Максимум 3 МБ');await api('course',JSON.parse(await file.text()));await refresh();toast('Тест импортирован')}catch(e){toast(e.message)}}
-function assignForm(id){const c=document.getElementById('content');const people=state.users.filter(u=>!u.admin);const roles=[...new Set(people.map(u=>u.role))];c.innerHTML=heading('НАЗНАЧЕНИЕ',esc(state.courses.find(x=>x.id===id).title),'Одна попытка на сотрудника. Повторное назначение не сбрасывает результат.')+'<div class="panel narrow"><label>Выбрать по роли</label><select id="role-filter"><option value="">Все роли</option>'+roles.map(r=>'<option>'+esc(r)+'</option>').join('')+'</select><div id="people">'+people.map(u=>'<label class="option"><input type="checkbox" value="'+u.id+'" data-role="'+esc(u.role)+'">'+esc(u.name)+' <span class="hint">'+esc(u.role)+'</span></label>').join('')+'</div><div class="toolbar row"><button onclick="saveAssignment('+id+')">Назначить выбранным</button><button class="secondary" onclick="go(\'courses\')">Отмена</button></div></div>';document.getElementById('role-filter').onchange=e=>document.querySelectorAll('#people input').forEach(x=>x.checked=!e.target.value||x.dataset.role===e.target.value)}
-async function saveAssignment(id){try{await api('assign',{course_id:id,user_ids:[...document.querySelectorAll('#people input:checked')].map(x=>Number(x.value))});await refresh();toast('Обучение назначено')}catch(e){toast(e.message)}}
-function users(c){c.innerHTML=heading('КОМАНДА','Люди, которые растут','Добавляйте сотрудников и объединяйте их по ролям.')+'<div class="panel"><h2>Новый сотрудник</h2><form id="user-form"><div class="row"><input name="name" placeholder="Имя и фамилия" aria-label="Имя" required><input name="email" type="email" placeholder="Email" aria-label="Email" required><input name="role" placeholder="Роль / должность" aria-label="Роль" required><input name="password" type="password" minlength="10" placeholder="Пароль от 10 символов" aria-label="Пароль" required><button>Добавить</button></div></form><p class="hint">Данные для входа передайте сотруднику лично. Новые пользователи получают права сотрудника.</p></div><div class="panel row"><div><strong>Импорт команды из CSV</strong><div class="hint">Колонки: name,email,role,password · UTF-8 · до 500 строк</div></div><input type="file" accept=".csv" aria-label="Импорт сотрудников" onchange="importUsers(this)"></div><div class="table-wrap"><table><thead><tr><th>Сотрудник</th><th>Роль</th><th>Доступ</th></tr></thead><tbody>'+state.users.map(u=>'<tr><td>'+esc(u.name)+'<small>'+esc(u.email)+'</small></td><td>'+esc(u.role)+'</td><td><span class="badge">'+(u.admin?'Администратор':'Сотрудник')+'</span></td></tr>').join('')+'</tbody></table></div>';document.getElementById('user-form').onsubmit=e=>submitForm(e,async b=>{await api('user',b);await refresh();toast('Сотрудник добавлен')})}
-function parseCSV(s){const rows=[];let row=[],field='',quoted=false;for(let i=0;i<s.length;i++){const c=s[i];if(c==='"'){if(quoted&&s[i+1]==='"'){field+='"';i++}else quoted=!quoted}else if(c===','&&!quoted){row.push(field);field=''}else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&s[i+1]==='\n')i++;row.push(field);if(row.some(Boolean))rows.push(row);row=[];field=''}else field+=c}if(quoted)throw Error('Незакрытая кавычка в CSV');row.push(field);if(row.some(Boolean))rows.push(row);return rows}
-async function importUsers(input){try{const file=input.files[0];if(!file)return;if(file.size>1000000)throw Error('Максимум 1 МБ');const rows=parseCSV((await file.text()).replace(/^\uFEFF/,''));const headers=rows.shift();if(!['name','email','role','password'].every(h=>headers?.includes(h)))throw Error('Ожидаются колонки name,email,role,password');await api('import_users',{users:rows.map(r=>Object.fromEntries(headers.map((h,i)=>[h,r[i]||''])))});await refresh();toast('Команда импортирована')}catch(e){toast(e.message)}}
-function results(c){const admin=state.user.admin;const rows=state.assignments;c.innerHTML=heading('РЕЗУЛЬТАТЫ',admin?'Прогресс виден в деталях':'Ваши достижения',admin?'Публикуйте завершённые результаты, когда готовы поделиться ими.':'Здесь появятся результаты, опубликованные администратором.')+(rows.length?'<div class="table-wrap"><table><thead><tr>'+(admin?'<th>Сотрудник</th>':'')+'<th>Обучение</th><th>Попытка</th><th>Результат</th><th>Доступ сотрудника</th></tr></thead><tbody>'+rows.map(a=>'<tr>'+(admin?'<td>'+esc(a.name)+'</td>':'')+'<td>'+esc(a.title)+'</td><td>'+badge(a)+'</td><td>'+(a.score!==null?a.score+'% · '+(a.score>=a.pass_score?'Пройдено':'Не пройдено'):'—')+'</td><td>'+(a.published?'<span class="badge good">Открыт</span>':admin&&['completed','expired'].includes(a.status)?'<button class="secondary" onclick="publish('+a.id+',this)">Опубликовать</button>':'<span class="hint">Ожидает публикации</span>')+'</td></tr>').join('')+'</tbody></table></div>':'<div class="empty">Результатов пока нет</div>')}
-async function publish(id,b){b.disabled=true;try{await api('publish',{id});await refresh();toast('Результат доступен сотруднику')}catch(e){toast(e.message);b.disabled=false}}
-function branding(c){c.innerHTML=heading('ВАШ БРЕНД','Платформа с вашим характером','Название, акцентный цвет и логотип — без изменения кода.')+'<form id="brand-form" class="panel narrow"><label>Название платформы</label><input name="name" value="'+esc(state.brand.name)+'" maxlength="80" required><label>Основной цвет</label><div class="row"><input name="color" type="color" value="'+esc(state.brand.color)+'" style="height:50px"><p>Кнопки, навигация и акценты интерфейса</p></div><label>Логотип · PNG, JPEG или WebP, до 500 КБ</label><input id="logo" type="file" accept="image/png,image/jpeg,image/webp"><label><input type="checkbox" id="remove-logo"> Удалить текущий логотип</label><button type="submit">Сохранить оформление</button></form>';document.getElementById('brand-form').onsubmit=e=>submitForm(e,async b=>{b.logo=state.brand.logo;if(document.getElementById('remove-logo').checked)b.logo='';const f=document.getElementById('logo').files[0];if(f){if(f.size>500000||!['image/png','image/jpeg','image/webp'].includes(f.type))throw Error('Выберите PNG, JPEG или WebP до 500 КБ');b.logo=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(f)})}await api('brand',b);await refresh();toast('Оформление обновлено')})}
-async function openAttempt(id,start=false){try{attempt=await api(start?'start':'attempt&id='+id,start?{id}:undefined);const c=document.getElementById('content');clearInterval(timer);if(attempt.status==='assigned'){c.innerHTML=heading('ОБУЧЕНИЕ',esc(attempt.title),'Изучите материал перед началом теста.')+'<div class="panel material">'+esc(attempt.material||'Учебный материал не добавлен. Можно перейти к тесту.')+'</div><p>На тест отведено '+state.assignments.find(a=>a.id===id).minutes+' минут. Доступна одна попытка.</p><button onclick="beginAttempt('+id+')">Начать тест →</button>';return}const key='forma:'+state.user.id+':'+id;let saved={};try{saved=JSON.parse(localStorage.getItem(key)||'{}')}catch(e){}c.innerHTML=heading('ПРОВЕРКА ЗНАНИЙ',esc(attempt.title),'Выберите один ответ на каждый вопрос.')+'<div class="panel timer" id="timer" role="status"></div><form id="test-form" class="panel narrow">'+attempt.questions.map((q,i)=>'<div class="question"><h3>'+(i+1)+'. '+esc(q.text)+'</h3>'+q.options.map((o,j)=>'<label class="option"><input type="radio" name="q'+i+'" value="'+j+'" '+(Number(saved[i])===j&&saved[i]!==undefined?'checked':'')+' required>'+esc(o)+'</label>').join('')+'</div>').join('')+'<div class="toolbar"><button>Отправить ответы →</button></div></form>';const form=document.getElementById('test-form');form.onchange=()=>{const draft={};new FormData(form).forEach((v,k)=>draft[k.slice(1)]=Number(v));try{localStorage.setItem(key,JSON.stringify(draft))}catch(e){toast('Черновик не сохранён в браузере')}};form.onsubmit=e=>submitForm(e,async b=>{await api('submit',{id,answers:attempt.questions.map((q,i)=>Number(b['q'+i]))});try{localStorage.removeItem(key)}catch(e){}clearInterval(timer);page='overview';await refresh();toast('Ответы отправлены. Результат появится после публикации.')});const deadline=Date.now()+attempt.remaining*1000;const tick=()=>{const seconds=Math.max(0,Math.ceil((deadline-Date.now())/1000));document.getElementById('timer').textContent='Осталось '+Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');if(!seconds){clearInterval(timer);form.querySelectorAll('input,button').forEach(x=>x.disabled=true);toast('Время попытки истекло');refresh()}};tick();timer=setInterval(tick,1000)}catch(e){toast(e.message);await refresh()}}
-function beginAttempt(id){if(confirm('Начать тест? Таймер запустится сразу. Доступна одна попытка.'))openAttempt(id,true)}
-refresh();
+// ── Theme ─────────────────────────────────────────────────────────
+(function() {
+  const saved = localStorage.getItem('theme') || 'light';
+  document.documentElement.setAttribute('data-theme', saved);
+})();
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+}
+
+
+const api = {
+  async request(url, method='GET', data, signal) {
+    const options={method,signal,credentials:'include'};
+    if(data!==undefined){options.headers={'Content-Type':'application/json'};options.body=JSON.stringify(data);}
+    const response=await fetch(url,options);
+    const text=await response.text();
+    let result;
+    try {result=JSON.parse(text);} catch(e) {
+      result={ok:false,error:'Сервер вернул некорректный ответ (HTTP '+response.status+'). Ответы остались в браузере.'};
+    }
+    if(!result || typeof result!=='object')result={ok:false,error:'Некорректный ответ сервера'};
+    result.http_status=response.status;
+    if(!response.ok)result.ok=false;
+    if(response.status===401 || response.status===403)window.dispatchEvent(new CustomEvent('lms-access-denied',{detail:{status:response.status,url}}));
+    return result;
+  },
+  get(url){return this.request(url);},
+  post(url,data){return this.request(url,'POST',data);},
+  put(url,data){return this.request(url,'PUT',data);},
+  delete(url){return this.request(url,'DELETE');},
+};
+
+// ── Toast ────────────────────────────────────────────────────────
+function toast(msg, type = 'ok') {
+  let el = document.getElementById('toast');
+  if (!el) { el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; document.body.appendChild(el); }
+  el.textContent = msg;
+  el.className = 'toast show' + (type === 'err' ? ' err' : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── Form helpers ──────────────────────────────────────────────────
+function setErr(fieldId, msg) {
+  const f = document.getElementById('f-' + fieldId);
+  if (!f) return;
+  f.classList.add('has-err');
+  const e = f.querySelector('.field-err');
+  if (e && msg) e.textContent = msg;
+}
+function clrErr(fieldId) {
+  const f = document.getElementById('f-' + fieldId);
+  if (f) f.classList.remove('has-err');
+}
+function clrAllErr() {
+  document.querySelectorAll('.has-err').forEach(f => f.classList.remove('has-err'));
+}
+function val(id) {
+  const el = document.getElementById(id);
+  return el ? el.value.trim() : '';
+}
+
+// ── Nav helper ────────────────────────────────────────────────────
+function showPage(pageId, clickedNavItem) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const pg = document.getElementById('page-' + pageId);
+  if (pg) pg.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  if (clickedNavItem) clickedNavItem.classList.add('active');
+}
+
+// ── Screen switch ─────────────────────────────────────────────────
+function goScreen(id) {
+  document.querySelectorAll('.auth-screen, .app-screen').forEach(s => s.classList.remove('active'));
+  const s = document.getElementById('screen-' + id);
+  if (s) s.classList.add('active');
+}
+
+// ── Register step indicator ───────────────────────────────────────
+let _rStep = 1;
+function setRegStep(n) {
+  _rStep = n;
+  [1, 2, 3].forEach(i => {
+    const panel = document.getElementById('rp' + i);
+    const dot   = document.getElementById('rsd' + i);
+    const lbl   = document.getElementById('rsl' + i);
+    if (panel) panel.classList.toggle('active', i === n);
+    if (dot) dot.className = 'rs-dot' + (i < n ? ' rs-done' : i === n ? ' rs-active' : '');
+    if (lbl) lbl.className = (i < n ? 'rs-done' : i === n ? 'rs-active' : '');
+  });
+}
+
+// ── Avatar initials ───────────────────────────────────────────────
+function initials(fname, lname) {
+  return ((fname || '')[0] + (lname || '')[0]).toUpperCase();
+}
+
+// ── Modal ─────────────────────────────────────────────────────────
+function addModalCloseButton(modal) {
+  if (!modal || modal.querySelector('.modal-close-btn')) return;
+  const head = document.createElement('div');
+  head.className = 'modal-head';
+  head.innerHTML = '<button type="button" class="modal-close-btn" aria-label="Закрыть">×</button>';
+  modal.insertBefore(head, modal.firstChild);
+}
+function ensureModalCloseButton(overlay) {
+  if (!overlay) return;
+  const modal = overlay.querySelector('.modal');
+  if (modal) addModalCloseButton(modal);
+}
+function stopModalMedia(modal) {
+  if (!modal) return;
+  modal.querySelectorAll('iframe,video').forEach(el => {
+    if (el.tagName === 'IFRAME') {
+      if (el.src) {
+        el.removeAttribute('src');
+      }
+    } else if (el.tagName === 'VIDEO') {
+      el.pause && el.pause();
+    }
+  });
+}
+function openModal(id) {
+  const m = document.getElementById(id);
+  if (m) {
+    ensureModalCloseButton(m);
+    m.classList.add('open');
+  }
+}
+function closeModal(id, force = false) {
+  const m = document.getElementById(id);
+  if (m) {
+    if (!force && m.dataset.confirmClose === 'true' &&
+        !window.confirm('Вы действительно хотите выйти? Текущий прогресс теста будет потерян.')) return false;
+    stopModalMedia(m);
+    m.classList.remove('open');
+    if (m.dataset.autoRemove === 'true') {
+      setTimeout(() => m.remove(), 140);
+    }
+    return true;
+  }
+  return false;
+}
+// Close on overlay click
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay')) {
+    closeModal(e.target.id);
+  }
+});
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.modal-close-btn');
+  if (!btn) return;
+  const overlay = btn.closest('.modal-overlay');
+  if (overlay) closeModal(overlay.id);
+});

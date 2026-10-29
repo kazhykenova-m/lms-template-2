@@ -1,5 +1,5 @@
 Options -Indexes
 DirectoryIndex index.php
-<FilesMatch "^(core|router)\.php$">
+<FilesMatch "^(config(\.local|\.local\.example)?\.php|php_errors\.log)$">
 Require all denied
 </FilesMatch>
