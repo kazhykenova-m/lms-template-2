@@ -1,0 +1,38 @@
+name: Publish browser demo
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate browser demo
+        run: |
+          test -f docs/index.html
+          test -f docs/assets/style.css
+          node --check docs/assets/app.js
+          node --check docs/assets/demo.js
+          if find docs -type f \( -name '*.php' -o -name '*.sqlite' -o -name '*.csv' \) | grep -q .; then
+            echo "Unexpected server or data files in Pages artifact"
+            exit 1
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
