@@ -1,0 +1,1 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Forma · Обучение команды</title><link rel="stylesheet" href="assets/style.css"></head><body><div id="app"><p class="loading">Загрузка платформы…</p></div><div id="toast" role="status"></div><script src="assets/app.js" defer></script></body></html>
